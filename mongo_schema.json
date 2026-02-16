@@ -1,0 +1,60 @@
+{
+  "generatedAt": "2026-02-14T14:05:44.926Z",
+  "schemas": [
+    {
+      "dbName": "community_db",
+      "collectionName": "users",
+      "sampleCount": 1,
+      "fields": {
+        "_id": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "mock_user_917395873727"
+          ]
+        },
+        "createdAt": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "2026-02-13T18:01:02.639983"
+          ]
+        },
+        "lastLogin": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "2026-02-13T18:02:08.150577"
+          ]
+        },
+        "phoneNumber": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "+917395873727"
+          ]
+        },
+        "age": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            32
+          ]
+        },
+        "userName": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "Srinath"
+          ]
+        }
+      }
+    }
+  ]
+}
