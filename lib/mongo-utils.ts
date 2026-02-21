@@ -3,6 +3,8 @@ import { MongoClient } from "mongodb";
 export type FieldInfo = {
   types: string[];
   examples: any[];
+  description?: string;
+  tips?: string;
 };
 
 export type CollectionSchema = {

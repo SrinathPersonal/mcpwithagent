@@ -1,12 +1,20 @@
 import "dotenv/config";
 import express from "express";
 import { MongoClient } from "mongodb";
-import { inferSchemas, CollectionSchema } from "../lib/mongo-utils";
+import { inferSchemas, CollectionSchema } from "../lib/mongo-utils.js";
 import fs from "fs";
 import path from "path";
 import { ollama } from "ollama-ai-provider";
-import { generateObject } from "ai";
+import { generateObject, generateText } from "ai";
 import { z as schemaDef } from "zod";
+import { inferExcelSchema, fetchExcelData } from "../lib/excel-utils.js";
+import { inferSqlSchema, fetchSqlData } from "../lib/sql-utils.js";
+
+const CONNECTIONS_PATH = path.join(process.cwd(), "connections.json");
+const METADATA_PATH = path.join(process.cwd(), "metadata.json");
+const SCHEMAS_DIR = path.join(process.cwd(), "schemas");
+if (!fs.existsSync(SCHEMAS_DIR)) fs.mkdirSync(SCHEMAS_DIR);
+if (!fs.existsSync(METADATA_PATH)) fs.writeFileSync(METADATA_PATH, JSON.stringify({ metadata: {} }));
 
 const app = express();
 app.use(express.json());
@@ -17,64 +25,120 @@ if (!uri) {
   console.warn("MONGODB_URI not set. Server will start but database operations will fail.");
 }
 
+function safeLog(label: string, err: any) {
+  try {
+    const message = err instanceof Error ? err.stack || err.message : JSON.stringify(err);
+    console.error(`${label}:`, message);
+  } catch (e) {
+    console.error(`${label} (unsafe):`, String(err));
+  }
+}
+
+// Add global error handlers to prevent process exit
+process.on("unhandledRejection", (reason) => {
+  safeLog("Unhandled Rejection", reason);
+});
+process.on("uncaughtException", (err) => {
+  safeLog("Uncaught Exception", err);
+});
+
 const SCHEMA_PATH = path.join(process.cwd(), "mongo_schema.json");
-let client: MongoClient | null = null;
 
 async function getClient() {
   if (!uri) throw new Error("MONGODB_URI not set");
-  if (!client) {
-    client = new MongoClient(uri);
-    await client.connect();
-  }
+
+  // Create a fresh client for each request to avoid connection timeout issues
+  const client = new MongoClient(uri, {
+    serverSelectionTimeoutMS: 10000,
+    connectTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
+    maxPoolSize: 10,
+    minPoolSize: 1
+  });
+
+  await client.connect();
+  console.log('MongoDB client connected successfully');
   return client;
 }
 
-async function getOrUpdateSchema() {
+// Query result cache (5-minute TTL)
+const QUERY_CACHE = new Map<string, { result: any, timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getCachedQuery(key: string): any | null {
+  const cached = QUERY_CACHE.get(key);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+    console.log(`Cache HIT for query: ${key.substring(0, 50)}...`);
+    return cached.result;
+  }
+  if (cached) QUERY_CACHE.delete(key); // Remove stale entry
+  return null;
+}
+
+function setCachedQuery(key: string, result: any) {
+  QUERY_CACHE.set(key, { result, timestamp: Date.now() });
+  console.log(`Cached query result (${QUERY_CACHE.size} total cached)`);
+}
+
+async function getOrUpdateSchema(connectionId: string = "dataset-default") {
+  const connections = JSON.parse(fs.readFileSync(CONNECTIONS_PATH, "utf8")).connections;
+  let conn = connections.find((c: any) => c.id === connectionId);
+
+  // Fallback if not found
+  if (!conn && connections.length > 0) {
+    conn = connections[0];
+    connectionId = conn.id; // Use real ID for paths
+  }
+
+  if (!conn) throw new Error(`Connection ${connectionId} not found`);
+
+  const schemaPath = path.join(SCHEMAS_DIR, `${connectionId}.json`);
   let shouldUpdate = false;
-  if (!fs.existsSync(SCHEMA_PATH)) {
+
+  if (!fs.existsSync(schemaPath)) {
     shouldUpdate = true;
   } else {
     try {
-      const stats = fs.statSync(SCHEMA_PATH);
-      const mtime = stats.mtime.getTime();
-      const now = new Date().getTime();
-      // Check if older than 24 hours (86400000 ms)
-      if (now - mtime > 24 * 60 * 60 * 1000) {
-        shouldUpdate = true;
-      }
-    } catch (e) {
-      shouldUpdate = true;
+      const stats = fs.statSync(schemaPath);
+      if (Date.now() - stats.mtime.getTime() > 24 * 60 * 60 * 1000) shouldUpdate = true;
+    } catch { shouldUpdate = true; }
+  }
+
+  let finalSchemas: CollectionSchema[] = [];
+  if (shouldUpdate) {
+    console.log(`Updating schema for ${connectionId}...`);
+    if (conn.type === "mongodb") {
+      const uriToUse = conn.config.uri === "env:MONGODB_URI" ? (process.env.MONGODB_URI || "") : (conn.config.uri || "");
+      if (uriToUse) finalSchemas = await inferSchemas(uriToUse, 100);
+    } else if (conn.type === "excel") {
+      finalSchemas = await inferExcelSchema(conn.config.path);
+    } else if (conn.type === "sql") {
+      finalSchemas = await inferSqlSchema(conn.config);
     }
+    fs.writeFileSync(schemaPath, JSON.stringify({ generatedAt: new Date().toISOString(), schemas: finalSchemas }, null, 2));
+  } else {
+    finalSchemas = JSON.parse(fs.readFileSync(schemaPath, "utf8")).schemas as CollectionSchema[];
   }
 
-  if (shouldUpdate && uri) {
-    try {
-      console.log("Updating MongoDB schema cache...");
-      const schemas = await inferSchemas(uri, 100);
-      const out = { generatedAt: new Date().toISOString(), schemas };
-      fs.writeFileSync(SCHEMA_PATH, JSON.stringify(out, null, 2), "utf8");
-      return schemas;
-    } catch (err) {
-      console.error("Failed to update schema cache:", err);
-      if (fs.existsSync(SCHEMA_PATH)) {
-        const content = fs.readFileSync(SCHEMA_PATH, "utf8");
-        return JSON.parse(content).schemas as CollectionSchema[];
-      }
-      throw err;
-    }
+  // Merge with manual metadata
+  try {
+    const metaDataStr = fs.readFileSync(METADATA_PATH, "utf8");
+    const metaData = JSON.parse(metaDataStr).metadata;
+    const connMeta = metaData[connectionId] || {};
+    finalSchemas.forEach((s: CollectionSchema) => {
+      const collMeta = connMeta[s.collectionName] || {};
+      Object.keys(s.fields).forEach(f => {
+        if (collMeta[f]) {
+          s.fields[f].description = collMeta[f].description;
+          s.fields[f].tips = collMeta[f].tips;
+        }
+      });
+    });
+  } catch (e) {
+    console.error("Error merging metadata:", e);
   }
 
-  if (fs.existsSync(SCHEMA_PATH)) {
-    const content = fs.readFileSync(SCHEMA_PATH, "utf8");
-    return JSON.parse(content).schemas as CollectionSchema[];
-  }
-
-  if (!uri) throw new Error("MONGODB_URI not set and no schema cache found.");
-
-  const schemas = await inferSchemas(uri, 100);
-  const out = { generatedAt: new Date().toISOString(), schemas };
-  fs.writeFileSync(SCHEMA_PATH, JSON.stringify(out, null, 2), "utf8");
-  return schemas;
+  return finalSchemas;
 }
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -89,68 +153,178 @@ app.get("/schema", async (_req, res) => {
   }
 });
 
+app.get("/connections", (_req, res) => {
+  const data = JSON.parse(fs.readFileSync(CONNECTIONS_PATH, "utf8"));
+  res.json(data.connections);
+});
+
+app.post("/connect", (req, res) => {
+  const newConn = req.body;
+  const data = JSON.parse(fs.readFileSync(CONNECTIONS_PATH, "utf8"));
+  data.connections.push(newConn);
+  fs.writeFileSync(CONNECTIONS_PATH, JSON.stringify(data, null, 2));
+  res.json({ ok: true });
+});
+
+app.get("/catalog", async (_req, res) => {
+  try {
+    const connections = JSON.parse(fs.readFileSync(CONNECTIONS_PATH, "utf8")).connections;
+    const catalog = await Promise.all(connections.map(async (c: any) => {
+      try {
+        const schemas = await getOrUpdateSchema(c.id);
+        return { ...c, schemas };
+      } catch (err) {
+        return { ...c, schemas: [], error: String(err) };
+      }
+    }));
+    res.json(catalog);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/metadata", (req, res) => {
+  try {
+    const { connectionId, collectionName, fieldName, description, tips } = req.body;
+    const data = JSON.parse(fs.readFileSync(METADATA_PATH, "utf8"));
+    if (!data.metadata[connectionId]) data.metadata[connectionId] = {};
+    if (!data.metadata[connectionId][collectionName]) data.metadata[connectionId][collectionName] = {};
+    data.metadata[connectionId][collectionName][fieldName] = { description, tips };
+    fs.writeFileSync(METADATA_PATH, JSON.stringify(data, null, 2));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/ask", async (req, res) => {
-  const { prompt } = req.body;
+  const { prompt, connectionId = "dataset-default" } = req.body;
   if (!prompt) return res.status(400).json({ error: "Prompt is required" });
 
   try {
-    const schemas = await getOrUpdateSchema();
+    // Check cache first
+    const cacheKey = `${connectionId}:${prompt}`;
+    const cachedResult = getCachedQuery(cacheKey);
+    if (cachedResult) {
+      return res.json(cachedResult);
+    }
 
-    // Use Vercel AI SDK with Ollama provider
+    const schemas = await getOrUpdateSchema(connectionId);
+    const connections = JSON.parse(fs.readFileSync(CONNECTIONS_PATH, "utf8")).connections;
+    let conn = connections.find((c: any) => c.id === connectionId);
+
+    // Robust fallback: if connection not found, try to use the first one available
+    if (!conn && connections.length > 0) {
+      console.log(`Connection "${connectionId}" not found. Falling back to first available: "${connections[0].name}"`);
+      conn = connections[0];
+    }
+
+    if (!conn) throw new Error(`Connection ${connectionId} not found and no datasets available.`);
+
     const modelName = process.env.OLLAMA_MODEL || 'llama3.2';
-    console.log(`Using Ollama model: ${modelName}`);
+    console.log(`Using Ollama model: ${modelName} for prompt: "${prompt}" on ${conn.id}`);
 
-    const result = await generateObject({
-      model: ollama(modelName),
-      schema: schemaDef.object({
-        dbName: schemaDef.string().describe("The name of the database"),
-        collectionName: schemaDef.string().describe("The name of the collection"),
-        query: schemaDef.record(schemaDef.any()).describe("The MongoDB find query object"),
-        projection: schemaDef.record(schemaDef.any()).optional().describe("Fields to include/exclude"),
-        sort: schemaDef.record(schemaDef.any()).optional().describe("Sort order"),
-        limit: schemaDef.number().default(50).describe("Limit the number of results"),
-        explanation: schemaDef.string().describe("Explanation of what the query does in natural language"),
-        chartType: schemaDef.enum(["bar", "line", "pie", "area", "table"]).describe("The best chart type to visualize this data")
-      }),
-      prompt: `
-You are a MongoDB expert. Given the following database schema, translate the user's natural language request into a valid MongoDB find() query.
-
-Database Schema:
-${JSON.stringify(schemas, null, 2)}
-
+    console.time("AI Generation");
+    let AIResponse: any;
+    try {
+      const { text } = await generateText({
+        model: ollama(modelName),
+        temperature: 0,
+        prompt: `Task: Generate a data query for ${conn.type} source.
+Context: Connection "${conn.name}" (${conn.type}). 
+Available Tables: ${JSON.stringify(schemas.map(s => ({ dbName: s.dbName, name: s.collectionName, fields: Object.keys(s.fields) })), null, 0)}
 User Request: "${prompt}"
 
-Instructions:
-1. Identify the most relevant database and collection.
-2. Create a standard MongoDB query object for the find() method.
-3. Determine if any projection, sorting, or limiting is needed.
-4. Suggest a chart type (bar, line, pie, area, or table) based on the data structure.
-5. Return the query details.
+Rules:
+1. Use ONLY the field names provided in the context.
+2. The 'dbName' and 'collectionName' MUST be exactly as shown in the context.
+3. 'query' is for FILTERING ONLY (e.g. "where status is active"). 
+   - validation: query must be a key-value object (e.g. {"Status": "Active"}). 
+   - DO NOT put column names here.
+4. 'chartType' MUST be one of: "bar", "line", "pie", "area", "table".
+5. 'projection' is for SELECTING COLUMNS.
+   - Any field the user asks to "get", "show", or "display" MUST go here.
+   - Example: "get schemes and market value" -> projection: ["SCHEMENAME", "MARKET_VALUE"]
+   - NEVER list more than 5 fields unless "all" is requested.
+6. Output ONLY valid JSON.
 `,
-    });
+      });
 
-    const AIResponse = result.object;
-    console.log("AI Generated Query:", AIResponse);
+      console.log("Raw AI Response:", text);
 
-    const c = (await getClient()).db(AIResponse.dbName).collection(AIResponse.collectionName);
-    let cursor = c.find(AIResponse.query);
+      // Extract JSON from text (in case model wraps it in markdown blocks or includes text)
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON found in AI response: " + text);
+      const cleanedJson = jsonMatch[0];
+      AIResponse = JSON.parse(cleanedJson);
 
-    if (AIResponse.projection) cursor = cursor.project(AIResponse.projection);
-    if (AIResponse.sort) cursor = cursor.sort(AIResponse.sort as any);
-    if (AIResponse.limit) cursor = cursor.limit(AIResponse.limit);
+      // Ensure required fields exist even if AI missed them
+      if (!AIResponse.dbName) AIResponse.dbName = schemas[0]?.dbName || "default";
+      if (!AIResponse.collectionName) AIResponse.collectionName = schemas[0]?.collectionName || "Sheet1";
+      if (!AIResponse.query) AIResponse.query = {};
+      if (!AIResponse.chartType) AIResponse.chartType = "table";
 
-    const docs = await cursor.toArray();
+      // If user asked for "all", ensure projection is empty so all columns are returned
+      if (prompt.toLowerCase().includes("all") && (!AIResponse.projection || AIResponse.projection.length > 5)) {
+        AIResponse.projection = []; // Clear projection to show all
+      }
 
-    res.json({
-      query: AIResponse,
-      data: docs,
-      count: docs.length
-    });
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).json({ error: err.message || String(err) });
-  }
-});
+      console.timeEnd("AI Generation");
+      console.log("AI Generated Query:", JSON.stringify(AIResponse, null, 2));
+      if (AIResponse.projection) {
+        console.log(`AI Projection (${AIResponse.projection.length} fields):`, AIResponse.projection.join(", "));
+      } else {
+        console.log("AI Projection: ALL FIELDS (none specified)");
+      }
+
+      console.time("Data Fetch");
+      let docs: any[] = [];
+      let mongoClient: MongoClient | null = null;
+
+      try {
+        if (conn.type === "mongodb") {
+          mongoClient = await getClient();
+          const c = mongoClient.db(AIResponse.dbName).collection(AIResponse.collectionName);
+          let findQuery = c.find(AIResponse.query || {});
+          if (AIResponse.projection && Array.isArray(AIResponse.projection)) {
+            const projObj: any = {};
+            AIResponse.projection.forEach((f: string) => projObj[f] = 1);
+            findQuery = findQuery.project(projObj);
+          }
+          docs = await findQuery.limit(AIResponse.limit || 50).toArray();
+        } else if (conn.type === "excel") {
+          docs = await fetchExcelData(conn.config.path, AIResponse.collectionName, AIResponse.query, AIResponse.limit, AIResponse.projection);
+        } else if (conn.type === "sql") {
+          docs = await fetchSqlData(conn.config, AIResponse.collectionName, AIResponse.query, AIResponse.limit, AIResponse.projection);
+        }
+      } finally {
+        if (mongoClient) {
+          await mongoClient.close();
+          console.log('MongoDB client closed');
+        }
+      }
+      console.timeEnd("Data Fetch");
+
+      const result = { query: AIResponse, data: docs, count: docs.length };
+
+      // Cache the result
+      setCachedQuery(cacheKey, result);
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("ASK Error Details:", {
+        message: err.message,
+        stack: err.stack,
+        prompt,
+        connectionId,
+        rawAIResponse: (err as any).response
+      });
+      res.status(500).json({
+        error: err.message || String(err),
+        rawResponse: (err as any).response
+      });
+    }
+  });
 
 app.get("/data/:db/:coll", async (req, res) => {
   try {

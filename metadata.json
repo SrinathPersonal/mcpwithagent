@@ -1,0 +1,12 @@
+{
+  "metadata": {
+    "undefined": {
+      "undefined": {
+        "VALUE_DATE": {
+          "description": "its value date for the scheme, If the user mention any date get only the particuler date data, if not bring all",
+          "tips": "Use this as the transaction date"
+        }
+      }
+    }
+  }
+}

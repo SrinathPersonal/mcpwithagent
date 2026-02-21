@@ -1,17 +1,19 @@
 {
-  "generatedAt": "2026-02-14T14:05:44.926Z",
+  "generatedAt": "2026-02-16T11:47:15.259Z",
   "schemas": [
     {
       "dbName": "community_db",
       "collectionName": "users",
-      "sampleCount": 1,
+      "sampleCount": 2,
       "fields": {
         "_id": {
           "types": [
-            "string"
+            "string",
+            "object"
           ],
           "examples": [
-            "mock_user_917395873727"
+            "mock_user_917395873727",
+            "6992f8af49b543e79cbdbd00"
           ]
         },
         "createdAt": {
@@ -35,7 +37,8 @@
             "string"
           ],
           "examples": [
-            "+917395873727"
+            "+917395873727",
+            "+919012786543"
           ]
         },
         "age": {
@@ -43,7 +46,8 @@
             "number"
           ],
           "examples": [
-            32
+            32,
+            20
           ]
         },
         "userName": {
@@ -51,7 +55,8 @@
             "string"
           ],
           "examples": [
-            "Srinath"
+            "Srinath",
+            "Test User"
           ]
         }
       }

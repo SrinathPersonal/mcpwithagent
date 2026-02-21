@@ -1,0 +1,12 @@
+{
+  "connections": [
+    {
+      "id": "conn-1771328824645",
+      "name": "Holding Data",
+      "type": "excel",
+      "config": {
+        "path": "D:\\Data\\HoldingsData.csv"
+      }
+    }
+  ]
+}

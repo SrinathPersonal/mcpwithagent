@@ -1,0 +1,253 @@
+{
+  "generatedAt": "2026-02-17T11:47:41.556Z",
+  "schemas": [
+    {
+      "dbName": "ExcelFile",
+      "collectionName": "Sheet1",
+      "sampleCount": 399,
+      "fields": {
+        "VALUE_DATE": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            45962.00037037037,
+            45962.00037037037,
+            45962.00037037037
+          ]
+        },
+        "NAV_DATE": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            45962.00037037037,
+            45962.00037037037,
+            45962.00037037037
+          ]
+        },
+        "MATURITY_DATE": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            46769.00037037037,
+            48632.00037037037,
+            46833.00037037037
+          ]
+        },
+        "SCHEME_CODE": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "KIP",
+            "KIP",
+            "KIP"
+          ]
+        },
+        "SCHEMENAME": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "Kotak Debt Hybrid Fund",
+            "Kotak Debt Hybrid Fund",
+            "Kotak Debt Hybrid Fund"
+          ]
+        },
+        "ISIN_CODE": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "INE134E08LX5",
+            "INE134E08MA1",
+            "INE020B08AX5"
+          ]
+        },
+        "SECURITY": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "PFC220",
+            "PFC221",
+            "REC098"
+          ]
+        },
+        "SECURITY_NAME": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "07.59% Power Finance Corp Ltd (Series 221B)) 17/01/2028 (L)",
+            "07.64% POWER FINANCE CORP LTD (SR BS 223)) ( PUT 21/02/2026) 22/02/2033 (L)",
+            "08.09% Rural Electrification Corporation Ltd. Sr-I 21/03/2028 (L)"
+          ]
+        },
+        "ISSUER": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "POWER",
+            "POWER",
+            "REC"
+          ]
+        },
+        "ISSUER_NAME": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "Power Finance Corporation Ltd.",
+            "Power Finance Corporation Ltd.",
+            "REC LTD"
+          ]
+        },
+        "ASSET_TYPE": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            1,
+            1,
+            1
+          ]
+        },
+        "NETASSETS_F": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            0,
+            0,
+            0
+          ]
+        },
+        "NO_OF_DAYS": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            807,
+            2670,
+            871
+          ]
+        },
+        "NET_ASSETS": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            312426.481,
+            312426.481,
+            312426.481
+          ]
+        },
+        "ACCRUED_INTEREST": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            -1322531.51,
+            -7943506.85,
+            -167562.74
+          ]
+        },
+        "PERCENT_TO_NA": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            0.0652,
+            0.4945,
+            0.0595
+          ]
+        },
+        "UNITS": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "INE134E08LX5",
+            "INE134E08MA1",
+            "INE020B08AX5"
+          ]
+        },
+        "FACE_VALUE": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            100,
+            100,
+            100
+          ]
+        },
+        "RATING": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "AAA",
+            "AAA",
+            "AAA"
+          ]
+        },
+        "RATING_AGENCY": {
+          "types": [
+            "string"
+          ],
+          "examples": [
+            "CRISIL",
+            "CRISIL",
+            "CRISIL"
+          ]
+        },
+        "ORG_FACE_VALUE": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            1000000,
+            1000000,
+            1000000
+          ]
+        },
+        "MARKET_VALUE": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            20383060,
+            154498800,
+            18603144
+          ]
+        },
+        "MGMT_NAME": {
+          "types": [
+            "string",
+            "number"
+          ],
+          "examples": [
+            "PSU",
+            "PSU",
+            "PSU"
+          ]
+        },
+        "OPTIONDATE": {
+          "types": [
+            "number"
+          ],
+          "examples": [
+            46074.00037037037,
+            47025.00037037037,
+            46440.00037037037
+          ]
+        }
+      }
+    }
+  ]
+}
